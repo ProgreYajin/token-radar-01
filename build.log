@@ -1,0 +1,97 @@
+token-radar-01 entry: build log (2026-11-24)
+
+BUILT
+- lib/model.ts: snapshot parser, value model "radar-2", board builder, farm-plan generator, live-token set,
+  boardIssue (gate pre-check), dataScript. Node 22, standard library only. No protocol name is special-cased.
+- main.ts: reads --input (file or dir, default /input); writes to MAKEFUN_OUTPUT_DIR / --output / /output:
+  board.json {rows}, data.js (window.RADAR = ...), dashboard/, screenshots/, dossier.json (buildDossier,
+  text_max_bytes 65536, screenshots 4 x 524288, dashboard 400 files / 4 MiB). Writes nothing and exits 1
+  if boardIssue fails or screenshots/ holds fewer than 3 images.
+- dashboard/index.html, app.css, app.js (40,286 bytes total, no http(s):// anywhere): dark theme.
+  Routes: #/ board (sortable headers, search, category + chain filters, watchlist/below-floor scope),
+  #/filtered?cat=..&chain=..&scope=..&q=.. (also ?view=filtered&cat=..), #/protocol/<slug> detail
+  (figures, model breakdown with page-side recompute check, 6 farm steps with cost/time, "records no
+  token" note), #/live (24 live tokens with market cap), #/model (formula, constants, category factors,
+  snapshot date and source, "implied value is the entry's own claim").
+- screenshots/: 1-board.png, 2-detail.png (rank 1, steakhouse-financial), 3-filtered.png (category Risk
+  Curators). Taken with headless Chromium at /opt/meta-chromium/chrome (not on PATH; `which chromium`
+  finds nothing), driven over --remote-debugging-pipe, 1440x900.
+
+MODEL (one line)
+implied = round(tvl*0.25 * (1 + clamp(chg7d,-40,60)/100*0.6) * (0.55 + 0.45*min(age_days,1095)/1095)
+          * min(1.25, 1 + 0.05*log2(max(1,n_chains))) * category_factor)
+  age unknown -> 365 days; chg7d unknown -> 0.
+  category_factor by family: derivatives 1.20, dex 1.15, prediction 1.15, lending 1.10, chain 1.10,
+  staking 1.00, stable/CDP 1.00, yield 0.95, bridge 0.90, payments 0.90, other 0.90, curators/vaults 0.80, RWA 0.70.
+
+ROW COUNTS
+- Snapshot: 758 protocols, 342 pre-token, watchlist 40, floor $50,000,000.
+- Board: 226 rows = 40 watchlist + 186 rankable pre-token below the floor.
+  DEVIATION FROM THE BRIEF: the brief asks for 260 below-floor rows (300 total). The snapshot holds
+  only 186 protocols that are pre-token, not CEX, unversioned and below the floor, so 300 is not
+  reachable without breaking the stated rankable rule. The code keeps the cap at 260 and takes all 186.
+  226 rows is within the gate's 100..4000.
+- Live-token set: 24 (top by market cap), never ranked.
+
+VERIFICATION
+- main.ts run into out/: exit 0.
+- out/board.json: 226 rows, 226 unique known slugs, watchlist 40/40, ranks exactly 1..226, implied values
+  non-increasing (226 distinct; top Steakhouse Financial $492,934,202, bottom Monarq $526,926), every row
+  pre-token, 6 farm steps per row, step lengths 176..365 characters.
+- Determinism: second run into out2/; `diff -r out out2` -> no differences.
+- out/dossier.json: 867,871 bytes; dossier text 40,554 bytes, nothing truncated (dashboard source 40,286 B < 64 KiB).
+- Screenshots: all PNG 1440x900 (long side 1440, short side 900).
+  1-board.png 192,579 B; 2-detail.png 234,175 B; 3-filtered.png 192,554 B (all < 512 KiB; below the
+  300-350 KiB suggestion, which is a dossier-size guideline, not a minimum).
+- Screenshots show the same data as out/data.js: the preview they were taken from has data.js and
+  dashboard/ byte-identical to out/.
+- Refusal: with 1 screenshot, main.ts exits 1 and writes nothing. boardIssue catches order, coverage,
+  short-step and all-equal-value boards.
+
+REVISION (2026-11-24, second session)
+WHAT CHANGED (dashboard only; lib/model.ts, main.ts, model formula, board rows and farm plans untouched)
+- Top movers strip on the board (#/): the 5 board rows (all pre-token) with the largest positive 7d TVL
+  change, ties by rank, from the same data.js. Each card shows rank, name, 7d change, implied value and a
+  value bar, and links to #/protocol/<slug>. Hidden whenever a search, category, chain or scope filter is
+  active (same condition as the filter chips); a sort-only URL is not a filter and keeps it.
+  Current movers: #42 Shift DeFi +4448.47%, #182 Monolith Market +162.86%, #112 NUVA +160.80%,
+  #143 Theo Network thBill +94.01%, #104 August Digital +77.98%.
+- app.js dedupe: shared sgn() (signed %) used by pct() and the detail growth text; mult(n, d) replaces
+  x() and four inline "n/a or n.toFixed(d)+'×'" copies; bar(), tag(), nChains(), plink(), hero(),
+  card(), foot() and rows() replace repeated markup, map/join, plural and link code; one input listener
+  loop for search/category/chain; live view reuses catOf().
+- Dead code removed: ageOf() (never called), the one-use `below` variable, a header comment that said
+  "four views" while listing five.
+- app.css: one shared rule for the uppercase label style (thead th, .card h2, .kv th, .movers h2);
+  .pager a:hover folded into .btn:hover; .fbar reuses .bar's track/fill rules.
+  Added a global [hidden] { display: none !important }. This also fixes an old bug: .chips
+  { display: flex } overrode the hidden attribute, so an empty chip bar was always drawn on the board.
+- Dropped the tooltip titles on the board's WATCHLIST/EARLY tags (the detail view never had them).
+
+DASHBOARD BYTES (index.html + app.css + app.js)
+- before: 1,270 + 12,147 + 26,869 = 40,286
+- after:  1,270 + 12,444 + 26,409 = 40,123 (-163, including the new strip and its CSS)
+
+BROWSER
+- /opt/meta-chromium/chrome is still installed but now exits 13 at startup ("Hatch WebGL domain policy is
+  required for browser startup"), so it was not used. Fallback: google-chrome 158 --headless=new
+  --no-sandbox (we run as root) --hide-scrollbars --window-size=1440,900 --virtual-time-budget=3000,
+  with --screenshot and --dump-dom against file://.../out/dashboard/index.html.
+
+VERIFICATION
+- Routes (DOM dumps): #/ shows 226/226 rows, strip visible, chips hidden; #/filtered?cat=Risk%20Curators
+  33 rows, #/filtered?q=steak 1, ?scope=watchlist 40, ?chain=Ethereum 103, all with the strip hidden;
+  ?view=filtered&cat=Risk%20Curators gives 33 rows; #/filtered?sort=d7&dir=desc 226 rows with the strip
+  shown; #/protocol/steakhouse-financial has 6 figures, 6 model rows, 4 factor bars, 6 farm steps and
+  the recompute check; #/live 24 rows; #/model formula + 3 cards.
+- 2-detail.png and 3-filtered.png came out byte-identical (same md5) to the previous session's images,
+  so the refactor changed nothing visible in those views.
+- main.ts into out/: exit 0. Second run into out2/: diff -r out out2 -> identical.
+- out/board.json: 226 rows, 226 unique slugs, watchlist 40/40, ranks exactly 1..226, implied_value_usd
+  non-increasing (top 492,934,202, bottom 526,926, unchanged), 6 farm steps per row, 1,356 steps all
+  176..365 chars (within 20..600).
+- out/dossier.json exists: 863,759 bytes.
+- No http(s):// in dashboard/ or out/dashboard/.
+- Screenshots (PNG, 1440x900: long side 1440, short side 900, all <= 524,288 B):
+  1-board.png 189,634 B (now with Top movers); 2-detail.png 234,175 B (rank 1, steakhouse-financial);
+  3-filtered.png 192,554 B (category Risk Curators).
